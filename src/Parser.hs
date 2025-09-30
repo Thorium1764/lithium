@@ -1,6 +1,4 @@
-module Parser (
-  parse,
-)
+module Parser
 where
 
 import Lexer
@@ -47,6 +45,7 @@ data NodeStmt
   | StmtWrite NodeExpr NodeExpr
   | StmtClose NodeExpr
   | StmtReturn
+  | EmptyStmt
   deriving (Show)
 
 data Type
@@ -56,6 +55,8 @@ data Type
    | Char_t --char
    | String_t --string
    | Pointer_t --ptr
+   | Bool_t
+   | Any_t
    deriving (Show)
 
 data NodeIfPred
@@ -431,6 +432,7 @@ strtotype "string" = String_t
 strtotype "ptr" = Pointer_t
 strtotype "double" = Double_t
 strtotype "float" = Float_t
+strtotype "bool" = Bool_t
 strtotype _ = Int_t
 
 unOperators :: [TokenTypes]
