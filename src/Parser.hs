@@ -23,7 +23,7 @@ data NodeExpr = TermExpr NodeTerm | BinExpr BinOp NodeExpr NodeExpr
   deriving (Show)
 
 data BinOp = Add | Sub | Mult | Div | Eq | Gt | Lt | Geq | Leq | Neq | AndOp | OrOp | BOrOp | BXorOp | BAndOp | Mod | LShiftOp | RShiftOp
-  deriving (Show)
+  deriving (Show, Eq)
 
 data UnOp = NotOp | BNotOp | Deref | Addr | Neg
    deriving (Show)
@@ -57,7 +57,7 @@ data Type
    | Pointer_t --ptr
    | Bool_t
    | Any_t
-   deriving (Show)
+   deriving (Show, Eq, Ord)
 
 data NodeIfPred
   = NodeIfPredElse NodeScope
