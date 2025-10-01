@@ -12,7 +12,6 @@ data TokenTypes
   | HexLit --pointers i guess
   | Ident -- identifier ; also used for Labels
   | Label
-  | RegIdent
   | Colon --used for Labels
   | TrueLit
   | FalseLit
@@ -22,7 +21,9 @@ data TokenTypes
   | CloseCurly -- }
   | OpenParen -- (
   | CloseParen -- }
-  | Type --also add bytes
+  | OpenSquare --[
+  | CloseSquare --]
+  | Type --change to i32 like syntax
   | Equal -- assign =
   | Equals -- compare ==
   | Greater
@@ -38,27 +39,36 @@ data TokenTypes
   | BXor -- ^
   | Plus
   | Minus
+  | AddAssign
+  | SubAssign
   | Star --mult & dereference
   | FSlash -- /
-  | Ampersand -- &; BAnd and address
+  | MultAssign
+  | DivAssign
+  | Ampersand -- &; BAnd
   | Percentage -- % ; modulo
   | If
   | ElIf
   | Else
   | Goto
-  | Free
-  | HeapAlloc
-  | StackAlloc
+  | Free --munmap
+  | Alloc --mmap
   | SizeOf
   | RShift
   | LShift
   | Include
+  | Define -- define pi 3.14 
   | Write -- console & files
   | Read --       ""
   | System -- call terminal
   | Open -- files
   | Close -- files
   | Call --custom syscall
+  | HardwareReg --rax, rbx, rcx, etc.
+  | DotDefine {-.data, .bss, .define -}
+  | DotData
+  | DotBSS
+  | DotStart
   deriving (Show, Eq)
 
 data Token = Token {tokenType :: TokenTypes, line_ :: Int, value :: String} | EmptyToken deriving (Show, Eq)
@@ -79,14 +89,26 @@ tokenize src index line tokens
             new_tokens = token : tokens
         in tokenize src new_index line new_tokens
 
+
+      | (peek index 0) == '.'
+      = let (buf, idx) = completeWord (index + 1) ""
+            token = case buf of
+               "data" -> Token DotData line "0"
+               "bss" -> Token DotBSS line "0"
+               "define" -> Token DotDefine line "0"
+               "start" -> Token DotStart line "0"
+            new_tokens = token : tokens
+        in tokenize src idx line new_tokens
+
+      | (peek index 0) == '%'
+      = let (buf, idx) = completeWord (index + 1) ""
+            token = Token HardwareReg line buf
+            new_tokens = token : tokens
+        in tokenize src idx line new_tokens
+
       | ((peek index 0) == '#' && isAlphaNum (peek index 1))
       = let (buf, index2) = completeWord (index+1) ""
             new_tokens = (Token {tokenType = Label, line_ = line, value = buf}) : tokens
-        in tokenize src index2 line new_tokens
-
-      | ((peek index 0) == '%' && isAlphaNum (peek index 1))
-      = let (buf, index2) = completeWord (index+1) ""
-            new_tokens = (Token {tokenType = RegIdent, line_ = line, value = buf}) : tokens
         in tokenize src index2 line new_tokens
 
       | isAlpha (peek index 0)
@@ -179,12 +201,12 @@ tokenize src index line tokens
     identifyKeywords "system" line = Token {tokenType = System, line_ = line, value = "0"}
     identifyKeywords "sizeof" line = Token {tokenType = SizeOf, line_ = line, value = "0"}
     identifyKeywords "free" line = Token {tokenType = Free, line_ = line, value = "0"}
-    identifyKeywords "malloc" line = Token {tokenType = HeapAlloc, line_ = line, value = "0"}
-    identifyKeywords "alloca" line = Token {tokenType = StackAlloc, line_ = line, value = "0"}
+    identifyKeywords "malloc" line = Token {tokenType = Alloc, line_ = line, value = "0"}
     identifyKeywords "true" line = Token {tokenType = TrueLit, line_ = line, value = "0"}
     identifyKeywords "false" line = Token {tokenType = FalseLit, line_ = line, value = "0"}
     identifyKeywords "include" line = Token {tokenType = Include, line_ = line, value = "0"}
     identifyKeywords "return" line = Token {tokenType = Return, line_ = line, value = "0"}
+    identifyKeywords "define" line = Token Define line "0"
     identifyKeywords buf line = Token {tokenType = Ident, line_ = line, value = buf}
 
     skipComments :: Int -> Int
@@ -209,10 +231,16 @@ tokenize src index line tokens
       | (peek index 0) == '|' && (peek index 1) == '|' = (Token {tokenType = Or, line_ = line, value = "0"}, index + 2)
       | (peek index 0) == '&' && (peek index 1) == '&' = (Token {tokenType = And, line_ = line, value = "0"}, index + 2)
       | (peek index 0) == '!' && (peek index 1) == '=' = (Token {tokenType = Nequals, line_ = line, value = "0"}, index + 2)
+      | (peek index 0) == '+' && (peek index 1) == '=' = (Token {tokenType = AddAssign, line_ = line, value = "0"}, index + 2)
+      | (peek index 0) == '-' && (peek index 1) == '=' = (Token {tokenType = SubAssign, line_ = line, value = "0"}, index + 2)
+      | (peek index 0) == '*' && (peek index 1) == '=' = (Token {tokenType = MultAssign, line_ = line, value = "0"}, index + 2)
+      | (peek index 0) == '/' && (peek index 1) == '=' = (Token {tokenType = DivAssign, line_ = line, value = "0"}, index + 2)
       | (peek index 0) == '(' = (Token {tokenType = OpenParen, line_ = line, value = "0"}, index + 1)
       | (peek index 0) == ')' = (Token {tokenType = CloseParen, line_ = line, value = "0"}, index + 1)
       | (peek index 0) == '{' = (Token {tokenType = OpenCurly, line_ = line, value = "0"}, index + 1)
       | (peek index 0) == '}' = (Token {tokenType = CloseCurly, line_ = line, value = "0"}, index + 1)
+      | (peek index 0) == '[' = (Token {tokenType = OpenSquare, line_ = line, value = "0"}, index + 1)
+      | (peek index 0) == ']' = (Token {tokenType = CloseSquare, line_ = line, value = "0"}, index + 1)
       | (peek index 0) == ';' = (Token {tokenType = Semi, line_ = line, value = "0"}, index + 1)
       | (peek index 0) == '=' = (Token {tokenType = Equal, line_ = line, value = "0"}, index + 1)
       | (peek index 0) == '+' = (Token {tokenType = Plus, line_ = line, value = "0"}, index + 1)
@@ -233,3 +261,22 @@ tokenize src index line tokens
 
 tokenizeSrc :: String -> [Token]
 tokenizeSrc str = reverse (tokenize str 0 1 [])
+
+gprRegisters = --general purpose register Registers
+  [ "rax", "eax", "ax", "al", "ah"
+  , "rbx", "ebx", "bx", "bl", "bh"
+  , "rcx", "ecx", "cx", "cl", "ch"
+  , "rdx", "edx", "dx", "dl", "dh"
+  , "rsi", "esi", "si", "sil"
+  , "rdi", "edi", "di", "dil"
+  , "rbp", "ebp", "bp", "bpl"
+  , "rsp", "esp", "sp", "spl"
+  , "r8",  "r8d",  "r8w",  "r8b"
+  , "r9",  "r9d",  "r9w",  "r9b"
+  , "r10", "r10d", "r10w", "r10b"
+  , "r11", "r11d", "r11w", "r11b"
+  , "r12", "r12d", "r12w", "r12b"
+  , "r13", "r13d", "r13w", "r13b"
+  , "r14", "r14d", "r14w", "r14b"
+  , "r15", "r15d", "r15w", "r15b"
+  ]

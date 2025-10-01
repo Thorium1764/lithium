@@ -5,18 +5,13 @@ import Lexer
 import System.IO
 
 -- define node types
-data NodeTerm = Identifier Token 
-              | RegIdentifier Token
+data NodeTerm = Register Token 
+              | Identifier Token --data, bss and macros
               | Literal Token 
               | ParenExpr NodeExpr  
-              | TermRead NodeExpr
-              | TermOpen NodeExpr
-              | TermSystem NodeExpr
-              | TermHeapAlloc NodeExpr
-              | TermStackAlloc NodeExpr
-              | TermCall [NodeExpr] --missing
               | UnExpr UnOp NodeExpr
               | Sizeof Type
+              | Deref NodeExpr
   deriving (Show)
 
 data NodeExpr = TermExpr NodeTerm | BinExpr BinOp NodeExpr NodeExpr
@@ -25,26 +20,31 @@ data NodeExpr = TermExpr NodeTerm | BinExpr BinOp NodeExpr NodeExpr
 data BinOp = Add | Sub | Mult | Div | Eq | Gt | Lt | Geq | Leq | Neq | AndOp | OrOp | BOrOp | BXorOp | BAndOp | Mod | LShiftOp | RShiftOp
   deriving (Show, Eq)
 
-data UnOp = NotOp | BNotOp | Deref | Addr | Neg
+data UnOp = NotOp | BNotOp | Neg
    deriving (Show)
 
 data NodeStmt
-  = StmtExit NodeExpr
-  | StmtLet Token NodeExpr Type
-  | StmtLetReg Token NodeExpr Type
-  | StmtScope NodeScope
-  | StmtIf NodeExpr NodeScope (Maybe NodeIfPred)
-  | StmtAssign Token NodeExpr
-  | StmtAsReg Token NodeExpr
-  | StmtPtrAs Token NodeExpr --in future also assign ptrs with: store value, ptr
-  | StmtPtrAsReg Token NodeExpr
-  | StmtLabel Token NodeScope
-  | StmtGoto Token
-  | StmtFree NodeExpr
-  | StmtInclude String
+  = StmtExit NodeExpr --
+  | StmtScope NodeScope --
+  | StmtIf NodeExpr NodeScope (Maybe NodeIfPred) --
+  | StmtAsReg Token NodeExpr Type --rdx = 42
+  | StmtPtrAs NodeExpr NodeExpr Type --[rdx] = 42
+  | StmtAssignData
+  | StmtLabel Token --
+  | StmtGoto Token -- 
+  | StmtFree NodeExpr --
+  | StmtAlloc NodeExpr
+  | StmtInclude String --
   | StmtWrite NodeExpr NodeExpr
   | StmtClose NodeExpr
+  | StmtRead NodeExpr
+  | StmtOpen NodeExpr
+  | StmtSystem NodeExpr --call shell
+  | StmtSyscall [NodeExpr]
   | StmtReturn
+  | StmtDefine Token NodeExpr
+  | StmtData Token NodeExpr Type
+  | StmtBSS Token Type
   | EmptyStmt
   deriving (Show)
 
@@ -89,46 +89,43 @@ parseProg tokens index prog =
 
 parseStmt :: [Token] -> Int -> Either String (NodeStmt, Int)
 parseStmt tokens index
-  | (tokenType (peek index 0)) == RegIdent && (tokenType (peek index 1)) == Colon && (tokenType (peek index 2)) == Type && (tokenType (peek index 3)) == Equal = 
-      do
-        (expr, index1) <- parseExpr tokens (index + 4) 0
-        index2 <- expect Semi index1
-        let ident = peek index 0
-            dataType = strtotype $ value (peek index 2)
-        pure (StmtLetReg ident expr dataType, index2)
-  | (tokenType (peek index 0)) == Ident && (tokenType (peek index 1)) == Colon && (tokenType (peek index 2)) == Type && (tokenType (peek index 3)) == Equal = 
-      do
-        (expr, index1) <- parseExpr tokens (index + 4) 0
-        index2 <- expect Semi index1
-        let ident = peek index 0
-            dataType = strtotype $ value (peek index 2)
-        pure (StmtLet ident expr dataType, index2)
   | (tokenType (peek index 0)) == Exit && (tokenType (peek index 1)) == OpenParen =
       do
         (expr, index1) <- parseExpr tokens (index + 2) 0
         index2 <- expect CloseParen index1
         index3 <- expect Semi index2
         pure (StmtExit expr, index3)
-  | (tokenType (peek index 0)) == RegIdent && (tokenType (peek index 1)) == Equal =
+  | (tokenType (peek index 0)) == HardwareReg && (tokenType (peek index 1)) == Equal =
       do
         (expr, index1) <- parseExpr tokens (index + 2) 0
         index2 <- expect Semi index1
-        pure (StmtAsReg (peek index 0) expr, index2)
-  | (tokenType (peek index 0)) == Star && (tokenType (peek index 1)) == Ident && (tokenType $ peek index 2) == Equal =
+        pure (StmtAsReg (peek index 0) expr Any_t, index2)
+  | (tokenType (peek index 0)) == Ident && (tokenType (peek index 1)) == Colon && (tokenType (peek index 2)) == Type && (tokenType (peek index 3)) == Equal = 
+      do
+        (expr, index1) <- parseExpr tokens (index + 4) 0
+        index2 <- expect Semi index1
+        let ident = peek index 0
+            dataType = strtotype $ value (peek index 2)
+        pure (StmtData ident expr dataType, index2)
+  | (tokenType (peek index 0)) == Ident && (tokenType (peek index 1)) == Colon && (tokenType (peek index 2)) == Type = 
+      do
+        index2 <- expect Semi (index + 3)
+        let ident = peek index 0
+            dataType = strtotype $ value (peek index 2)
+        pure (StmtBSS ident dataType, index2)
+  | (tokenType (peek index 0)) == Define && (tokenType (peek index 1)) == Ident && (tokenType (peek index 2)) == Colon =
+      do
+        (expr, index1) <- parseExpr tokens (index + 3) 0
+        index2 <- expect Semi index1
+        let ident = peek index 0
+        pure (StmtDefine ident expr, index2)
+  | (tokenType (peek index 0)) == OpenSquare = -- wasnt that bad
       do 
-        (expr, index1) <- parseExpr tokens (index + 3) 0
-        index2 <- expect Semi index1
-        pure (StmtPtrAs (peek index 1) expr, index2)
-  | (tokenType (peek index 0)) == Star && (tokenType (peek index 1)) == RegIdent && (tokenType $ peek index 2) == Equal =
-      do
-        (expr, index1) <- parseExpr tokens (index + 3) 0
-        index2 <- expect Semi index1
-        pure (StmtPtrAsReg (peek index 1) expr, index2)
-  | (tokenType (peek index 0)) == Ident && (tokenType (peek index 1)) == Equal =
-      do
-        (expr, index1) <- parseExpr tokens (index + 2) 0
-        index2 <- expect Semi index1
-        pure (StmtAssign (peek index 0) expr, index2)
+        (reg, index1) <- parseExpr tokens (index + 1) 0
+        (index2, typ) <- checkForTyping index1
+        index3 <- expect Equal index2
+        (expr, index4) <- parseExpr tokens (index3) 0
+        pure (StmtPtrAs reg expr typ, index2)
   | (tokenType (peek index 0)) == OpenCurly =
       do
         (scope, index1) <- parseScope tokens index
@@ -148,8 +145,7 @@ parseStmt tokens index
         pure (StmtGoto (peek index 1), index2)
   | (tokenType (peek index 0)) == Label && (tokenType $ peek index 1) == Colon = 
       do 
-        (scope, index2) <- parseScope tokens (index + 2)
-        pure (StmtLabel (peek index 0) scope, index2)
+        pure (StmtLabel (peek index 0), (index + 2))
   | (tokenType (peek index 0)) == Free && (tokenType (peek index 1)) == OpenParen =
       do
         (expr, index1) <- parseExpr tokens (index + 2) 0
@@ -175,6 +171,48 @@ parseStmt tokens index
         index3 <- expect CloseParen index2
         index4 <- expect Semi index3
         pure (StmtClose fd, index4)
+  | (tokenType $ peek index 0) == Open && (tokenType $ peek index 1) == OpenParen = 
+      do 
+        (fn, index2) <- parseExpr tokens (index + 2) 0
+        index3 <- expect CloseParen index2
+        index4 <- expect Semi index3
+        pure (StmtOpen fn, index4)
+  | (tokenType $ peek index 0) == Read && (tokenType $ peek index 1) == OpenParen = 
+      do 
+        (fd, index2) <- parseExpr tokens (index + 2) 0
+        index3 <- expect CloseParen index2
+        index4 <- expect Semi index3
+        pure (StmtRead fd, index4)
+  | (tokenType $ peek index 0) == Alloc && (tokenType $ peek index 1) == OpenParen = 
+      do 
+        (size, index2) <- parseExpr tokens (index + 2) 0
+        index3 <- expect CloseParen index2
+        index4 <- expect Semi index3
+        pure (StmtAlloc size, index4)
+  | (tokenType $ peek index 0) == System && (tokenType $ peek index 1) == OpenParen = 
+      do 
+        (cmd, index2) <- parseExpr tokens (index + 2) 0
+        index3 <- expect CloseParen index2
+        index4 <- expect Semi index3
+        pure (StmtClose cmd, index4)
+  | (tokenType $ peek index 0) == Call && (tokenType $ peek index 1) == OpenParen = 
+      do 
+        (callNum, index2) <- parseExpr tokens (index + 2) 0
+        index3 <- expect Comma index2
+        (rdi, index4) <- parseExpr tokens (index + 2) 0
+        index5 <- expect Comma index4
+        (rsi, index6) <- parseExpr tokens (index + 2) 0
+        index7 <- expect Comma index6
+        (rdx, index8) <- parseExpr tokens (index + 2) 0
+        index9 <- expect Comma index8
+        (r8, index10) <- parseExpr tokens (index + 2) 0
+        index11 <- expect Comma index10
+        (r9, index12) <- parseExpr tokens (index + 2) 0
+        index13 <- expect Comma index12
+        (r10, index14) <- parseExpr tokens (index + 2) 0
+        index15 <- expect CloseParen index14
+        index16 <- expect Semi index15
+        pure (StmtSyscall [callNum, rdi, rsi, rdx, r8, r9, r10], index15)
   | (tokenType $ peek index 0) == Return =
       do 
         index2 <- expect Semi (index + 1)
@@ -194,6 +232,10 @@ parseStmt tokens index
          then Right (index + 1)
          else Left ("Error: Unexpected " ++ show (tokenType $ peek index 0) ++ " instead of " ++ show expected ++ " at Line " ++ show (line_ $ peek index 0))
       else Left ("Error: Missing: " ++ show expected)
+
+  checkForTyping :: Int -> Either String (Int, Type)
+  checkForTyping index =
+   if (tokenType $ peek index 0) == Colon && (tokenType $ peek index 1) == Type then pure (index+2, strtotype $ value $ peek index 1) else pure (index, Any_t)
 
 parseScope :: [Token] -> Int -> Either String (NodeScope, Int)
 parseScope tokens index = do
@@ -257,12 +299,6 @@ parseTerm tokens index
   | elem (tokenType (peek index 0)) literals =
       do
         pure (TermExpr $ Literal (peek index 0), index + 1)
-  | (tokenType (peek index 0)) == Ident =
-      do
-        pure (TermExpr $ Identifier (peek index 0), index + 1)
-  | (tokenType (peek index 0)) == RegIdent =
-      do
-        pure (TermExpr $ RegIdentifier (peek index 0), index + 1)
   | (tokenType (peek index 0)) == OpenParen =
       do
         (expr, index1) <- parseExpr tokens (index + 1) 0
@@ -273,52 +309,24 @@ parseTerm tokens index
         index2 <- expect Type (index + 2)
         index3 <- expect CloseParen index2
         pure (TermExpr $ Sizeof (strtotype $ value $ peek index 2), index3)
+  | (tokenType $ peek index 0) == OpenSquare =
+      do 
+        (expr, index2) <- parseExpr tokens (index + 1) 0
+        index3 <- expect CloseSquare index2
+        pure (TermExpr $ Deref expr, index3)
   | elem (tokenType $ peek index 0) unOperators = 
       do 
         (unexpr, index2) <- parseUnOp index
         pure (TermExpr $ unexpr, index2)
-  | (tokenType $ peek index 0) == Read && (tokenType $ peek index 1) == OpenParen =
-      do 
-        (fd, index2) <- parseExpr tokens (index + 2) 0
-        index3 <- expect CloseParen index2
-        pure (TermExpr $ TermRead fd, index3)
-  | (tokenType $ peek index 0) == System && (tokenType $ peek index 1) == OpenParen =
-      do 
-        (call, index2) <- parseExpr tokens (index + 2) 0
-        index3 <- expect CloseParen index2
-        pure (TermExpr $ TermSystem call, index3)
-  | (tokenType $ peek index 0) == Open && (tokenType $ peek index 1) == OpenParen =
-      do 
-        (fname, index2) <- parseExpr tokens (index + 2) 0
-        index3 <- expect CloseParen index2
-        pure (TermExpr $ TermOpen fname, index3)
-  | (tokenType $ peek index 0) == HeapAlloc && (tokenType $ peek index 1) == OpenParen =
-      do 
-        (size, index2) <- parseExpr tokens (index + 2) 0
-        index3 <- expect CloseParen index2
-        pure (TermExpr $ TermHeapAlloc size, index3)
-  | (tokenType $ peek index 0) == StackAlloc && (tokenType $ peek index 1) == OpenParen =
-      do 
-        (size, index2) <- parseExpr tokens (index + 2) 0
-        index3 <- expect CloseParen index2
-        pure (TermExpr $ TermStackAlloc size, index3)
-  | (tokenType $ peek index 0) == Call && (tokenType $ peek index 1) == OpenParen = -- i aint checking this; it stays unsafe
-      do 
-        (callNum, index2) <- parseExpr tokens (index + 2) 0
-        index3 <- expect Comma index2
-        (rdi, index4) <- parseExpr tokens (index + 2) 0
-        index5 <- expect Comma index4
-        (rsi, index6) <- parseExpr tokens (index + 2) 0
-        index7 <- expect Comma index6
-        (rdx, index8) <- parseExpr tokens (index + 2) 0
-        index9 <- expect Comma index8
-        (r8, index10) <- parseExpr tokens (index + 2) 0
-        index11 <- expect Comma index10
-        (r9, index12) <- parseExpr tokens (index + 2) 0
-        index13 <- expect Comma index12
-        (r10, index14) <- parseExpr tokens (index + 2) 0
-        index15 <- expect CloseParen index14
-        pure (TermExpr $ TermCall [callNum, rdi, rsi, rdx, r8, r9, r10], index15)
+  | (tokenType $ peek index 0) == HardwareReg =
+      do
+        if (elem (value $ peek index 0) gprRegisters)
+         then pure (TermExpr $ Register (peek index 0), index + 1)
+         else Left ((show $ value $ peek index 0) ++ " is not a valid register")
+  | (tokenType $ peek index 0) == Ident =
+      do
+        pure (TermExpr $ Identifier (peek index 0), index + 1)
+        
  where
   peek :: Int -> Int -> Token
   peek index offset =
@@ -341,9 +349,6 @@ parseTerm tokens index
       BNot -> pure (UnExpr BNotOp expr, index2)
       Not -> pure (UnExpr NotOp expr, index2)
       Minus -> pure (UnExpr Neg expr, index2)
-      Ampersand -> pure (UnExpr Addr expr, index2)
-      Star -> pure (UnExpr Deref expr, index2)
-      
 
 parseExpr :: [Token] -> Int -> Int -> Either String (NodeExpr, Int)
 parseExpr tokens index minPrec =
@@ -436,7 +441,7 @@ strtotype "bool" = Bool_t
 strtotype _ = Int_t
 
 unOperators :: [TokenTypes]
-unOperators = [BNot, Not, Ampersand, Star, Minus]
+unOperators = [BNot, Not, Minus]
 
 literals :: [TokenTypes]
 literals = [IntLit, FloatLit, StringLit, TrueLit, FalseLit, CharLit, HexLit]
@@ -450,4 +455,8 @@ literals = [IntLit, FloatLit, StringLit, TrueLit, FalseLit, CharLit, HexLit]
 
 
 
-
+{- accept :: TokenTypes -> Int -> Int
+ - accept accepted idx = 
+ -    if (peek index 0) /= EmptyToken 
+ -       then if (tokenType $ peek index 0) == accepted then (idx + 1) else idx
+ -       else idx-} --make semis optional
