@@ -310,4 +310,5 @@ gprRegisters = --no longer just gpr but i dont want to change the name
   , "rip", "eip", "ip"      -- Instruction pointer ; dont write to these
   , "rflags", "eflags", "flags" -- Flags register
   ]
+--when writing to rip just jump to the value with jump
 
