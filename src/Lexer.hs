@@ -262,7 +262,7 @@ tokenize src index line tokens
 tokenizeSrc :: String -> [Token]
 tokenizeSrc str = reverse (tokenize str 0 1 [])
 
-gprRegisters = --general purpose register Registers
+ {-gprRegisters = --general purpose register Registers
   [ "rax", "eax", "ax", "al", "ah"
   , "rbx", "ebx", "bx", "bl", "bh"
   , "rcx", "ecx", "cx", "cl", "ch"
@@ -279,4 +279,35 @@ gprRegisters = --general purpose register Registers
   , "r13", "r13d", "r13w", "r13b"
   , "r14", "r14d", "r14w", "r14b"
   , "r15", "r15d", "r15w", "r15b"
+  ]-}
+
+gprRegisters = --no longer just gpr but i dont want to change the name
+  [ -- 8-bit registers
+    "al", "cl", "dl", "bl"
+  , "ah", "ch", "dh", "bh"
+  , "spl", "bpl", "sil", "dil"
+  , "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"
+
+    -- 16-bit registers
+  , "ax", "bx", "cx", "dx"
+  , "sp", "bp", "si", "di"
+  , "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"
+
+    -- 32-bit registers
+  , "eax", "ebx", "ecx", "edx"
+  , "esp", "ebp", "esi", "edi"
+  , "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"
+
+    -- 64-bit registers
+  , "rax", "rbx", "rcx", "rdx"
+  , "rsp", "rbp", "rsi", "rdi"
+  , "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
+
+    -- Segment registers
+  , "cs", "ds", "ss", "es", "fs", "gs"
+
+    -- Instruction pointer / flags
+  , "rip", "eip", "ip"      -- Instruction pointer ; dont write to these
+  , "rflags", "eflags", "flags" -- Flags register
   ]
+
